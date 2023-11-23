@@ -15,7 +15,7 @@ struct PlayButtonView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
     @State private var currentTime: TimeInterval = 0
-    private let timerInterval = 0.1 
+    private let timerInterval = 0.1
 
     var body: some View {
         VStack(spacing: 35) {
@@ -36,7 +36,7 @@ struct PlayButtonView: View {
                         }
                     }
                 Text("\(formatTime(currentTime)) / \(formatTime(audioPlayer?.duration ?? 0))")
-                    .foregroundColor(.gray)
+                    .foregroundColor(.white)
                     .font(.caption)
                 Spacer()
             }
