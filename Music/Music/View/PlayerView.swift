@@ -24,9 +24,6 @@ struct PlayerView: View {
                         
                         .frame(minWidth: 10,maxWidth: 80)
                         .offset(x: -65, y: -0)
-//                    Text("Geolier")
-//                        .frame(minWidth: 10,maxWidth: 80)
-//                        .offset(x: -65, y: -0)
                     
                 }
                 .frame(width: 70)

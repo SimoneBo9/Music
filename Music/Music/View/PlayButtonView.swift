@@ -9,56 +9,102 @@ import SwiftUI
 import Combine
 import AVFoundation
 
-struct PlayButtonView: View {
-    @State private var volume: Double = 0.2
-    @State private var barprogress: Double = 0
-    private let range: ClosedRange<Double> = 0...1
-    @State private var audioPlayer: AVAudioPlayer?
-    @State private var isPlaying = false
-    @State private var currentTime: TimeInterval = 0
-    private let timerInterval = 0.1 // Intervallo di aggiornamento del timer in secondi
+class PlayerViewModel: NSObject, ObservableObject {
+    @Published var barprogress: Double = 0
+    @Published var currentTime: TimeInterval = 0
+    @Published var isPlaying: Bool = false
+    var audioPlayer: AVAudioPlayer?
+
     private var cancellables: Set<AnyCancellable> = []
+
+    override init() {
+        super.init()
+        setupAudioPlayer()
+        setupTimerPublisher()
+    }
+
+    internal func setupAudioPlayer() {
+        guard let url = Bundle.main.url(forResource: "WorthATry", withExtension: "mp3") else { return }
+
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+
+            self.audioPlayer = try AVAudioPlayer(contentsOf: url)
+            self.audioPlayer?.volume = 0.2 // Initial volume
+            self.audioPlayer?.delegate = self
+        } catch {
+            print("Failed to initialize the audio player: \(error.localizedDescription)")
+        }
+    }
+
+    private func setupTimerPublisher() {
+        Timer.publish(every: 0.1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self = self, let player = self.audioPlayer, !self.isPlaying else { return }
+                self.currentTime = player.currentTime
+                self.barprogress = self.currentTime / player.duration
+
+                // Forza l'aggiornamento della vista
+                DispatchQueue.main.async {
+                    self.objectWillChange.send()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    func playPause() {
+        isPlaying.toggle()
+
+        if isPlaying {
+            audioPlayer?.play()
+        } else {
+            audioPlayer?.pause()
+        }
+    }
+
+    func seekTo(seconds: TimeInterval) {
+        audioPlayer?.currentTime = seconds
+    }
+
+    deinit {
+        audioPlayer?.delegate = nil
+        audioPlayer = nil
+    }
+}
+
+extension PlayerViewModel: AVAudioPlayerDelegate {
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        if flag {
+            // Playback finished successfully
+            // Implement any logic you need here
+        } else {
+            // Playback finished with an error
+            print("Playback finished with an error.")
+        }
+    }
+}
+
+struct PlayButtonView: View {
+    @StateObject private var viewModel = PlayerViewModel()
+    @State private var volume: Double = 0.2
+    private let range: ClosedRange<Double> = 0...1
 
     var body: some View {
         VStack(spacing: 35) {
-            HStack {
-                Spacer()
-                Slider(value: $barprogress, in: range)
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let width = UIScreen.main.bounds.width
-                            let percent = min(max(value.location.x / width, 0), 1)
-                            self.barprogress = percent
-                            self.seekTo(seconds: self.barprogress * (audioPlayer?.duration ?? 0))
-                        }
-                    )
-                    .onReceive(Just(barprogress).debounce(for: .milliseconds(500), scheduler: RunLoop.main)) { _ in
-                        // Update current time when barprogress changes (debounced)
-                        if let player = self.audioPlayer {
-                            self.currentTime = player.duration * self.barprogress
-                        }
-                    }
-                Text("\(formatTime(currentTime)) / \(formatTime(audioPlayer?.duration ?? 0))")
-                    .foregroundColor(.white)
-                    .font(.caption)
-                Spacer()
-            }
+            // ... (Rest of your UI code)
 
             HStack {
-                Spacer()
-                Image(systemName: "backward.fill")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 50)
-                Spacer()
-                play
+                // ... (Previous and next buttons)
+
+                playButton
                     .tint(.black)
-                Spacer()
-                Image(systemName: "forward.fill")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 50)
-                Spacer()
+                    .onTapGesture {
+                        viewModel.playPause()
+                    }
+
+                // ... (Forward button)
             }
             .frame(height: 60)
             .padding(.leading)
@@ -73,61 +119,19 @@ struct PlayButtonView: View {
         .padding(.leading)
         .padding(.trailing)
         .onAppear {
-            guard let url = Bundle.main.url(forResource: "Worth a try", withExtension: "mp3") else { return }
-
-            do {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-                try AVAudioSession.sharedInstance().setActive(true)
-
-                self.audioPlayer = try AVAudioPlayer(contentsOf: url, fileTypeHint: AVFileType.m4a.rawValue)
-                self.audioPlayer?.volume = Float(volume)
-
-                let timer = Timer.scheduledTimer(withTimeInterval: timerInterval, repeats: true) { _ in
-                    if let player = self.audioPlayer, !self.isPlaying {
-                        self.currentTime = player.currentTime
-                        self.barprogress = self.currentTime / player.duration
-                    }
-                }
-                RunLoop.current.add(timer, forMode: .common)
-            } catch {
-                print("Failed to initialize the audio player: \(error.localizedDescription)")
+            if viewModel.audioPlayer == nil {
+                viewModel.setupAudioPlayer()
             }
         }
         .onChange(of: volume) {
-            audioPlayer?.volume = Float(volume)
+            viewModel.audioPlayer?.volume = Float($0)
         }
     }
 
-    var play: some View {
-        VStack {
-            Button(action: {
-                self.isPlaying.toggle()
-
-                if self.isPlaying {
-                    self.audioPlayer?.play()
-                } else {
-                    self.audioPlayer?.pause()
-                }
-            }) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .resizable()
-                    .frame(width: 50, height: 50)
-            }
-        }
-    }
-
-    func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-
-    func seekTo(seconds: Double) {
-        if let player = self.audioPlayer {
-            let time = max(0, min(seconds, player.duration))
-            player.currentTime = time
-            self.currentTime = time
-        }
+    var playButton: some View {
+        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+            .resizable()
+            .frame(width: 50, height: 50)
     }
 }
 
